@@ -6,7 +6,9 @@ defmodule Server do
   use Application
 
   def start(_type, _args) do
-    :ets.new(:redis_store, [:set, :public, :named_table])
+    # Initialize ETS table for storing key-value pairs
+    :ets.new(:redis_db, [:set, :public, :named_table])
+
     Supervisor.start_link([{Task, fn -> Server.listen() end}], strategy: :one_for_one)
   end
 
@@ -31,11 +33,11 @@ defmodule Server do
   defp serve(client) do
     case :gen_tcp.recv(client, 0) do
       {:ok, data} ->
-        case handle_response(client, data) do
-          {:ok, "get", arg} -> {:ok, "get", arg}
-          _ -> serve(client)
-        end
-      {:error, _reason} -> :gen_tcp.close(client)
+        handle_response(client, data)
+        serve(client)
+      {:error, reason} ->
+        IO.puts("Error: #{inspect(reason)}")
+        :gen_tcp.close(client)
     end
   end
 
@@ -49,7 +51,7 @@ defmodule Server do
       [_, _, command, len, arg, _] ->
         case String.downcase(command) do
           "echo" -> :gen_tcp.send(client, "#{len}\r\n#{arg}\r\n")
-          "get" -> {:ok, "get", arg}
+          "get" -> handle_get(client, arg)
           _ -> :gen_tcp.send(client, "$-1\r\n")
         end
       [_, _, command, _, arg1, _, arg2, _] ->
@@ -62,22 +64,15 @@ defmodule Server do
   end
 
   defp handle_set(client, key, value) do
+    :ets.insert(:redis_db, {key, value})
     :gen_tcp.send(client, "+OK\r\n")
-    handle_get(client, key, value)
   end
 
-  defp handle_get(client, key, value) do
-    bind = serve(client)
-    case bind do
-      {:ok, "get", requested_key} ->
-        if requested_key == key do
-          :gen_tcp.send(client, "$#{String.length(value)}\r\n#{value}\r\n")
-        else
-          :gen_tcp.send(client, "$-1\r\n")
-        end
+  defp handle_get(client, key) do
+    case :ets.lookup(:redis_db, key) do
+      [{^key, value}] -> :gen_tcp.send(client, "$#{String.length(value)}\r\n#{value}\r\n")
       _ -> :gen_tcp.send(client, "$-1\r\n")
     end
-    handle_get(client, key, value)
   end
 
 end
