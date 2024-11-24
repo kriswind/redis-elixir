@@ -30,10 +30,27 @@ defmodule Server do
   defp serve(client) do
     msg = :gen_tcp.recv(client, 0)
     case msg do
-      {:ok, _} -> :gen_tcp.send(client, "+PONG\r\n")
+      {:ok, data} -> handle_response(client, data)
       {:error, _} -> :gen_tcp.close(client)
     end
 
+    serve(client)
+  end
+
+  defp handle_response(client, data) do
+    case String.split(data, "\r\n") do
+      [_, _, command, _] ->
+        case String.downcase(command) do
+          "ping" -> :gen_tcp.send(client, "+PONG\r\n")
+          _ -> :gen_tcp.send(client, "-ERR unknown command\r\n")
+        end
+      [_, _, command, len, message, _] ->
+        case String.downcase(command) do
+          "echo" -> :gen_tcp.send(client, "#{len}\r\n#{message}\r\n")
+          _ -> :gen_tcp.send(client, "-ERR unknown command\r\n")
+        end
+      _ -> :gen_tcp.send(client, "-ERR unknown command\r\n")
+    end
     serve(client)
   end
 
