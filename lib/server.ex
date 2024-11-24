@@ -18,11 +18,12 @@ defmodule Server do
     {:ok, socket} = :gen_tcp.listen(6379, [:binary, active: false, reuseaddr: true])
 
     accept_client(socket)
+
   end
 
   defp accept_client(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
-    serve(client)
+    Task.start_link(fn -> serve(client) end)
     accept_client(socket)
   end
 
